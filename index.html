@@ -23,6 +23,12 @@
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="Sayı Tahmin Oyunu">
 <meta name="twitter:description" content="Gizli sayıyı bul! 3-6 basamaklı sayı tahmin oyunu.">
+<link rel="manifest" href="manifest.json">
+<script>
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sayi-oyunu/sw.js');
+  }
+</script>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;600;700;800;900&family=Fredoka+One&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
