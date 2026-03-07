@@ -563,7 +563,21 @@ body::after{width:min(32vw,280px);height:min(32vw,280px);background:var(--blob-b
   </div>
 </div>
 
-<script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getFirestore, collection, addDoc, query, orderBy, limit, getDocs } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDoEBOYdcyU_t1mqYCXEKr1Go5JnHz9QD0",
+  authDomain: "sayi-tahmin-d8c4c.firebaseapp.com",
+  projectId: "sayi-tahmin-d8c4c",
+  storageBucket: "sayi-tahmin-d8c4c.firebasestorage.app",
+  messagingSenderId: "58795831650",
+  appId: "1:58795831650:web:f79f2d6e8e1f1193327c3b"
+};
+const fbApp = initializeApp(firebaseConfig);
+const db = getFirestore(fbApp);
+
 /* ════════ THEME ════════ */
 const html=document.documentElement;
 const themeBtn=document.getElementById('themeBtn');
@@ -592,39 +606,29 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change',e=>{
   try{if(!localStorage.getItem('st-theme')) applyTheme(e.matches?'dark':'light');}catch(e2){}
 });
 
-/* ════════ LEADERBOARD STORAGE ════════ */
-const LB_KEY='sayi-tahmin-lb-v1';
-const MAX_LB_ENTRIES=10; // max per mode
+/* ════════ LEADERBOARD STORAGE (Firebase) ════════ */
+const MAX_LB_ENTRIES=10;
 let currentLbTab=3;
-let lastWinData=null; // { digits, tries, name }
+let lastWinData=null;
 
-function loadLb(){
-  try{
-    const raw=localStorage.getItem(LB_KEY);
-    if(raw) return JSON.parse(raw);
-  }catch(e){}
-  return {3:[],4:[],5:[],6:[]};
-}
-
-function saveLb(lb){
-  try{localStorage.setItem(LB_KEY,JSON.stringify(lb));}catch(e){}
-}
-
-function addLbEntry(digits,name,tries){
-  const lb=loadLb();
-  if(!lb[digits]) lb[digits]=[];
+async function addLbEntry(digits,name,tries){
   const date=new Date().toLocaleDateString('tr-TR',{day:'2-digit',month:'2-digit'});
-  lb[digits].push({name,tries,date,ts:Date.now()});
-  // Sort ascending by tries, then by timestamp (earlier = better for ties)
-  lb[digits].sort((a,b)=>a.tries!==b.tries?a.tries-b.tries:a.ts-b.ts);
-  // Keep only top MAX_LB_ENTRIES
-  lb[digits]=lb[digits].slice(0,MAX_LB_ENTRIES);
-  saveLb(lb);
+  const ts=Date.now();
+  try{
+    await addDoc(collection(db,`lb_${digits}`),{name,tries,date,ts});
+  }catch(e){console.error('Firebase write error:',e);}
+}
+
+async function loadLbFromFirebase(digits){
+  try{
+    const q=query(collection(db,`lb_${digits}`),orderBy('tries','asc'),orderBy('ts','asc'),limit(MAX_LB_ENTRIES));
+    const snap=await getDocs(q);
+    return snap.docs.map(d=>d.data());
+  }catch(e){console.error('Firebase read error:',e); return [];}
 }
 
 function clearLeaderboard(){
   if(!confirm('Tüm sıralama verileri silinsin mi?')) return;
-  saveLb({3:[],4:[],5:[],6:[]});
   renderLb(currentLbTab);
 }
 
@@ -635,10 +639,10 @@ function switchLbTab(digits,el){
   renderLb(digits);
 }
 
-function renderLb(digits,lastAddedTs){
-  const lb=loadLb();
-  const entries=lb[digits]||[];
+async function renderLb(digits,lastAddedTs){
   const table=document.getElementById('lbTable');
+  table.innerHTML=`<div class="lb-empty">Yükleniyor... ⏳</div>`;
+  const entries=await loadLbFromFirebase(digits);
   if(entries.length===0){
     table.innerHTML=`<div class="lb-empty">Henüz kayıt yok. İlk sen ol! 🎮</div>`;
     return;
@@ -887,6 +891,14 @@ function showHint(){
 // Close modals on backdrop click
 $('winModal').addEventListener('click',function(e){if(e.target===this)goHome();});
 $('nameModal').addEventListener('click',function(e){if(e.target===this)submitName();});
+
+// Expose functions to global scope for onclick handlers
+window.switchLbTab=switchLbTab;
+window.clearLeaderboard=clearLeaderboard;
+window.submitName=submitName;
+window.goHome=goHome;
+window.startGame=startGame;
+window.guess=guess;
 
 // Init
 updateHomeStats();
