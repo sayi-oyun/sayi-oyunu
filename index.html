@@ -675,35 +675,6 @@ body::after{width:min(32vw,280px);height:min(32vw,280px);background:var(--blob-b
 </div>
 
 <script>
-/* ── Firebase loaded async — game works without it ── */
-let db = null;
-
-(async () => {
-  try {
-    const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js");
-    const { getFirestore, collection, addDoc, query, orderBy, limit, getDocs } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-    const cfg = {
-      apiKey: "AIzaSyDoEBOYdcyU_t1mqYCXEKr1Go5JnHz9QD0",
-      authDomain: "sayi-tahmin-d8c4c.firebaseapp.com",
-      projectId: "sayi-tahmin-d8c4c",
-      storageBucket: "sayi-tahmin-d8c4c.firebasestorage.app",
-      messagingSenderId: "58795831650",
-      appId: "1:58795831650:web:f79f2d6e8e1f1193327c3b"
-    };
-    const app = initializeApp(cfg);
-    db = getFirestore(app);
-    /* store helpers on db object so addLbEntry/loadLb can use them */
-    db._col = collection; db._add = addDoc;
-    db._q = query; db._ord = orderBy; db._lim = limit; db._get = getDocs;
-    /* refresh leaderboard now that Firebase is ready */
-    renderLb(currentLbTab);
-  } catch(e) {
-    console.warn('Firebase yüklenemedi, leaderboard devre dışı:', e);
-    const t = document.getElementById('lbTable');
-    if(t) t.innerHTML = '<div class="lb-empty">Leaderboard şu an kullanılamıyor 😔</div>';
-  }
-})();
-
 /* ── HELPERS ── */
 const $ = id => document.getElementById(id);
 const tx = (id, v) => $(id).textContent = v;
@@ -734,42 +705,41 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e =
   try { if (!localStorage.getItem('st-theme')) applyTheme(e.matches ? 'dark' : 'light'); } catch (e2) {}
 });
 
-/* ── LEADERBOARD (Firebase) ── */
+/* ── LEADERBOARD (localStorage) ── */
 const MAX_LB = 10;
 let currentLbTab = 3;
 let lastWinData = null;
 
-async function addLbEntry(digits, name, tries) {
-  if (!db) return;
-  const date = new Date().toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit' });
+function lbKey(digits) { return `st-lb-${digits}`; }
+
+function loadLb(digits) {
+  try {
+    return JSON.parse(localStorage.getItem(lbKey(digits)) || '[]');
+  } catch(e) { return []; }
+}
+
+function saveLb(digits, entries) {
+  try { localStorage.setItem(lbKey(digits), JSON.stringify(entries)); } catch(e) {}
+}
+
+function addLbEntry(digits, name, tries) {
+  const date = new Date().toLocaleDateString('tr-TR', { day:'2-digit', month:'2-digit' });
   const ts = Date.now();
-  try {
-    await db._add(db._col(db, `lb_${digits}`), { name, tries, date, ts });
-  } catch (e) { console.error('Firebase write:', e); }
+  const entries = loadLb(digits);
+  entries.push({ name, tries, date, ts });
+  entries.sort((a, b) => a.tries - b.tries || a.ts - b.ts);
+  saveLb(digits, entries.slice(0, MAX_LB));
+  return ts;
 }
 
-async function loadLb(digits) {
-  if (!db) return [];
-  try {
-    const q = db._q(db._col(db, `lb_${digits}`), db._ord('tries','asc'), db._ord('ts','asc'), db._lim(MAX_LB));
-    const snap = await db._get(q);
-    return snap.docs.map(d => d.data());
-  } catch (e) { console.error('Firebase read:', e); return []; }
-}
-
-async function renderLb(digits, lastTs) {
+function renderLb(digits, lastTs) {
   const table = $('lbTable');
-  if (!db) {
-    table.innerHTML = `<div class="lb-empty">Leaderboard yükleniyor... ⏳</div>`;
-    return;
-  }
-  table.innerHTML = `<div class="lb-empty">Yükleniyor... ⏳</div>`;
-  const entries = await loadLb(digits);
+  const entries = loadLb(digits);
   if (!entries.length) {
     table.innerHTML = `<div class="lb-empty">Henüz kayıt yok. İlk sen ol! 🎮</div>`;
     return;
   }
-  const RANK = ['🥇', '🥈', '🥉'];
+  const RANK = ['🥇','🥈','🥉'];
   table.innerHTML = entries.map((e, i) => {
     const isMe = lastTs && e.ts === lastTs;
     const rc = i < 3 ? `r${i+1}` : 'rn';
@@ -788,7 +758,7 @@ function esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-/* LB TABS — event delegation, iOS safe */
+/* LB TABS */
 $('lbTabs').addEventListener('click', e => {
   const btn = e.target.closest('.lb-tab');
   if (!btn) return;
@@ -800,19 +770,17 @@ $('lbTabs').addEventListener('click', e => {
 
 /* ── NAME MODAL ── */
 function openNameModal(digits, tries) {
-  lastWinData = { digits, tries, ts: null };
+  lastWinData = { digits, tries };
   $('nameModalSub').textContent = `${digits} basamaklı sayıyı ${tries} denemede buldun!`;
   $('nameInput').value = '';
   $('nameModal').classList.add('show');
   setTimeout(() => $('nameInput').focus(), 300);
 }
 
-async function submitName() {
+function submitName() {
   const name = $('nameInput').value.trim() || 'Anonim';
   if (!lastWinData) return;
-  const ts = Date.now();
-  lastWinData.ts = ts;
-  await addLbEntry(lastWinData.digits, name, lastWinData.tries);
+  const ts = addLbEntry(lastWinData.digits, name, lastWinData.tries);
   $('nameModal').classList.remove('show');
   const { digits, tries } = lastWinData;
   const s = stats[digits];
